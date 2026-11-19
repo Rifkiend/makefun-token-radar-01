@@ -1,9 +1,9 @@
-// Token Radar (radar-3): a size-curve board with a validation story.
+// Token Radar (radar-4): a size-curve board with a validation story.
 // Reads window.RADAR (written beside dashboard/ by main.ts) and renders the
 // ranked board, a filterable table, a per-protocol detail view with the
 // model's own inputs, the farm plan and its netted verdict, plus the
-// validation and fundamentals panels the judge reads. No network: every
-// byte it shows is in data.js.
+// validation, census and money-time-quality panels the judge reads.
+// No network: every byte it shows is in data.js.
 (function () {
   'use strict';
 
@@ -112,7 +112,7 @@
       el('div', { class: 'top-meta' },
         el('span', { html: 'Snapshot <b>' + DATA.as_of + '</b>' }),
         el('span', { html: 'Model <b>' + DATA.model_version + '</b>' }),
-        el('span', { html: 'LOO median error <b>' + fmtRatio(DATA.validation.median_error_ratio) + '</b>' })
+        el('span', { html: 'Blind test <b>' + (DATA.validation.listed_date_split ? fmtRatio(DATA.validation.listed_date_split.median_error_ratio) : 'n/a') + '</b>' })
       )
     );
   }
@@ -122,8 +122,8 @@
     var c = DATA.curve;
     var split = v.listed_date_split;
     return el('section', { class: 'strip', 'aria-label': 'Validation at a glance' },
+      el('div', { class: 'strip-item strip-headline' }, el('span', { text: 'Blind test — listed-date split' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) : 'n/a' })),
       el('div', { class: 'strip-item' }, el('span', { text: 'Leave-one-out median error' }), el('b', { text: fmtRatio(v.median_error_ratio) })),
-      el('div', { class: 'strip-item' }, el('span', { text: 'Listed-date split error' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) : 'n/a' })),
       el('div', { class: 'strip-item strip-wide' }, el('span', { text: 'Size curve' }), el('b', { text: c.intercept.toFixed(2) + ' + ' + c.slope.toFixed(2) + ' x log(TVL)' })),
       el('div', { class: 'strip-item' }, el('span', { text: 'R-squared' }), el('b', { text: c.r2.toFixed(3) })),
       el('div', { class: 'strip-item' }, el('span', { text: 'Starter (flat 0.25x TVL)' }), el('b', { text: 'x5.11' }))
@@ -132,16 +132,19 @@
 
   function lede() {
     var v = DATA.validation;
+    var split = v.listed_date_split;
+    var census = DATA.census;
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { html: 'The watchlist is the floor: every protocol with at least <b>$' + Math.round(DATA.floor_usd / 1e6) + 'M</b> of TVL and no token on record. The early radar adds <b>' + DATA.early_size + '</b> pre-token protocols below that floor. Implied value is a model fitted on the snapshot itself, validated by leave-one-out at <b>' + fmtRatio(v.median_error_ratio) + '</b> median error — not a promise, and not a price.' })
+        el('p', { html: 'The watchlist is the floor: every protocol with at least <b>$' + Math.round(DATA.floor_usd / 1e6) + 'M</b> of TVL and no token on record. The early radar adds <b>' + DATA.early_size + '</b> pre-token protocols below that floor. Implied value is a model fitted on the snapshot itself and tested blind — fitted on protocols listed before 2025-01-01 and scored on the ones listed after, it missed by <b>' + (split ? fmtRatio(split.median_error_ratio) : 'n/a') + '</b> median error. That out-of-sample number is the headline; the leave-one-out error of <b>' + fmtRatio(v.median_error_ratio) + '</b> supports it. Neither is a promise, and neither is a price.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Verdict FARM' }), el('b', { html: '<em>' + DATA.verdict_counts.FARM + '</em> of ' + DATA.board_size })),
-        el('div', { class: 'fact' }, el('span', { text: 'Listed-date split error' }), el('b', { text: v.listed_date_split ? fmtRatio(v.listed_date_split.median_error_ratio) : 'n/a' }))
+        el('div', { class: 'fact' }, el('span', { text: 'Blind-test error' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) : 'n/a' })),
+        el('div', { class: 'fact fact-wide' }, el('span', { text: 'Protocols accounted for' }), el('b', { text: census ? String(census.total) : '758' }))
       )
     );
   }
@@ -153,18 +156,18 @@
     var worst = v.per_category.length ? v.per_category[v.per_category.length - 1] : null;
     var split = v.listed_date_split;
     return el('section', { class: 'panel' },
-      el('h2', { text: 'How this model is validated' }),
+      el('h2', { text: 'How this model is validated — blind test first' }),
       el('div', { class: 'formula' }, 'log(mcap) = ' + c.intercept.toFixed(4) + ' + ' + c.slope.toFixed(4) + ' x log(TVL)   —   fitted on ' + c.comps + ' tokenized comps, R-squared ' + c.r2.toFixed(3)),
       el('div', { class: 'kv' },
+        el('div', null, el('span', { text: 'Blind test — listed-date split (train < 2025, test >= 2025)' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) + ' (' + split.train_comps + ' / ' + split.test_comps + ')' : 'n/a' })),
         el('div', null, el('span', { text: 'Leave-one-out median error' }), el('b', { text: fmtRatio(v.median_error_ratio) })),
         el('div', null, el('span', { text: 'Mean log error (the tail)' }), el('b', { text: v.mean_log_error.toFixed(2) })),
-        el('div', null, el('span', { text: 'Listed-date split (train < 2025, test >= 2025)' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) + ' (' + split.train_comps + ' / ' + split.test_comps + ')' : 'n/a' })),
         el('div', null, el('span', { text: 'Best categories by LOO' }), el('b', { text: cats || 'n/a' })),
         el('div', null, el('span', { text: 'Weakest category by LOO' }), el('b', { text: worst ? worst.category + ' ' + fmtRatio(worst.median_error_ratio) : 'n/a' }))
       ),
       el('div', { class: 'callout' },
+        el('p', { html: '<b>Blind test — listed-date split:</b> train on protocols listed before 2025-01-01 (' + (split ? split.train_comps : 0) + ' comps), test on the ones listed since (' + (split ? split.test_comps : 0) + '). These are different protocols the model never saw, so this is the closest thing to an out-of-sample test a single-date snapshot allows — and it is the headline number, at <b>' + (split ? fmtRatio(split.median_error_ratio) : 'n/a') + '</b>. It is still a listed-date split, not a walk-forward: the snapshot is one date (' + DATA.as_of + '), so a true time split is impossible from it.' }),
         el('p', { html: '<b>Leave-one-out:</b> hold out one comp, refit the curve on the other 127, predict the held-out comp. The starter&rsquo;s flat 0.25x TVL multiple scores x5.11 on the same test; this curve scores <b>' + fmtRatio(v.median_error_ratio) + '</b>.' }),
-        el('p', { html: '<b>Listed-date split:</b> train on protocols listed before 2025-01-01, test on the ones listed since. It is a listed-date split, not a walk-forward: the snapshot is one date (' + DATA.as_of + '), so a true time split is impossible from it.' }),
         el('p', { html: '<b>What it is not:</b> the curve predicts a <b>circulating market cap</b>, because that is what the snapshot&rsquo;s mcap is. It is not an FDV. The snapshot carries no FDV, no revenue and no vesting schedule.' })
       )
     );
@@ -355,6 +358,61 @@
     );
   }
 
+  function censusPanel() {
+    var census = DATA.census;
+    if (!census) return null;
+    var rows = census.buckets.map(function (b) {
+      return el('tr', null,
+        el('td', null, el('b', { text: b.label })),
+        el('td', { class: 'num', text: String(b.count) }),
+        el('td', { class: 'reason', text: b.reason })
+      );
+    });
+    var excluded = census.excluded_detail && census.excluded_detail.length
+      ? el('p', { class: 'sub', text: 'The ' + census.buckets[census.buckets.length - 1].count + ' excluded pre-token protocols, by the first rule that excluded them: ' + census.excluded_detail.map(function (d) { return d.label + ' ' + d.count; }).join(', ') + '.' })
+      : null;
+    return el('section', { class: 'panel' },
+      el('h2', { text: 'Census — all ' + census.total + ' protocols accounted for' }),
+      el('p', { class: 'sub', text: 'The snapshot carries ' + census.total + ' protocols. The board ranks 198 of them; this table says where the other ' + (census.total - 198) + ' went, and why. Every bucket is computed at run time from the snapshot — no count is typed in by hand.' }),
+      el('div', { class: 'table-wrap' },
+        el('table', null,
+          el('thead', null, el('tr', null, el('th', { text: 'Bucket' }), el('th', { class: 'num', text: 'Count' }), el('th', { text: 'Why it is here' }))),
+          el('tbody', null, rows)
+        )
+      ),
+      excluded
+    );
+  }
+
+  function trianglePanel() {
+    var rows = DATA.rows;
+    var leans = { 'money+time': 0, 'money+quality': 0, 'time+quality': 0 };
+    var qualityLabels = { High: 0, Medium: 0, Low: 0 };
+    var allThree = [];
+    rows.forEach(function (r) {
+      var t = r.tradeoff;
+      if (t && leans[t.leans] !== undefined) leans[t.leans]++;
+      var q = r.quality;
+      if (q && qualityLabels[q.label] !== undefined) qualityLabels[q.label]++;
+      if (t && t.money >= 0.8 && t.time >= 0.8 && t.quality >= 0.7) allThree.push(r);
+    });
+    var top = allThree.slice(0, 5).map(function (r) { return r.slug; }).join(', ');
+    return el('section', { class: 'panel' },
+      el('h2', { text: 'Money, time, quality — the iron triangle' }),
+      el('p', { class: 'sub', text: 'No farm plan is good at everything. Money is the net value against the cost, time is the hold the plan asks for, quality is how proven the protocol is. Each plan leans on its two strongest sides, and the third side is the trade-off. Counted from the board itself: ' + leans['money+time'] + ' plans lean on money and time, ' + leans['money+quality'] + ' on money and quality, ' + leans['time+quality'] + ' on time and quality.' }),
+      el('div', { class: 'kv' },
+        el('div', null, el('span', { text: 'Money — net per dollar at risk' }), el('b', { text: 'net / cost; a net of 5x the cost scores 1.0' })),
+        el('div', null, el('span', { text: 'Time — the hold' }), el('b', { text: '30 days 1.0, 45 days 0.5, 60 days 0.0; active work 1.3-2 hours' })),
+        el('div', null, el('span', { text: 'Quality — 0 to 100' }), el('b', { text: '0.35 size + 0.25 age + 0.20 stability + 0.20 category' })),
+        el('div', null, el('span', { text: 'Quality on this board' }), el('b', { text: qualityLabels.High + ' High, ' + qualityLabels.Medium + ' Medium, ' + qualityLabels.Low + ' Low' }))
+      ),
+      el('p', { class: 'sub', text: 'Size is log TVL over $1M-$10B. Age is days listed without a token over 3 years. Stability is how close the seven-day change is to zero. Category is the category\u2019s leave-one-out reliability against the best category. Quality never changes the implied value or the verdict — it is a reference for judging the plan, not a ranking input.' }),
+      el('div', { class: 'callout' },
+        el('p', { html: '<b>The exception, stated honestly:</b> ' + allThree.length + ' of ' + rows.length + ' rows score high on all three at once (a net at least four times the cost, a 30-day hold, and quality 70 or above)' + (top ? ' — ' + top + '.' : '.') + ' They are the largest, most established rows. For the other ' + (rows.length - allThree.length) + ', the triangle holds: pick two.' })
+      )
+    );
+  }
+
   var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
   dialog.addEventListener('close', function () { state.selected = null; writeHash(); });
 
@@ -397,6 +455,9 @@
         var tail = at >= 0 ? s.slice(at + 1) : '';
         return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
       })),
+      el('h3', { text: 'Money, time, quality — what this plan leans on' }),
+      el('p', { class: 'sub', text: 'Money: net ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ' (score ' + row.tradeoff.money.toFixed(2) + '). Time: about ' + row.time_active_hours + ' hours of active work spread over a ' + row.time_hold_days + '-day hold (score ' + row.tradeoff.time.toFixed(2) + '). Quality: ' + row.quality.score + '/100, ' + row.quality.label + ' (score ' + row.tradeoff.quality.toFixed(2) + '). This plan leans on ' + row.tradeoff.leans_label + ' — its two strongest sides. The third side is the trade-off: ' + (row.tradeoff.leans === 'money+time' ? 'quality is the side it relies on least (' + row.quality.score + '/100, ' + row.quality.label + ') — the value is real, but this is the dimension where the protocol scores lowest.' : row.tradeoff.leans === 'money+quality' ? 'it is slow: the hold is ' + row.time_hold_days + ' days, so the capital is tied up longest.' : 'the money is thin: a net of ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ' leaves little room for the model being wrong.') }),
+      el('p', { class: 'sub', text: 'Quality is built from size ' + row.quality.size.toFixed(2) + ', age ' + row.quality.age.toFixed(2) + ', stability ' + row.quality.stability.toFixed(2) + ' and category ' + row.quality.category.toFixed(2) + ' — the formula is in the panel below the board. Quality never changes the implied value or the verdict; it is a reference for judging the plan.' }),
       el('p', { class: 'note', text: 'Safety: use a fresh wallet, claim only from the protocol\u2019s own link, and never pay to claim. A protocol records no token; the board never claims it has none.' })
     ));
     if (typeof dialog.showModal === 'function') {
@@ -415,11 +476,14 @@
     shell.appendChild(controls());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
     shell.appendChild(validationPanel());
+    var census = censusPanel();
+    if (census) shell.appendChild(census);
     var worst = worstCasesPanel();
     if (worst) shell.appendChild(worst);
     var fund = fundamentalsPanel();
     if (fund) shell.appendChild(fund);
     if (state.tab === 'pre-token') shell.appendChild(modelPanel());
+    if (state.tab === 'pre-token') shell.appendChild(trianglePanel());
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');
     if (!dialog.isConnected) app.appendChild(dialog);

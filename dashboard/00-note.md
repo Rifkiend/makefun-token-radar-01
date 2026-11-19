@@ -1,9 +1,12 @@
-# Token Radar (radar-3) — a note to the judge
+# Token Radar (radar-4) — a note to the judge
 
 This dashboard ranks 198 pre-token protocols by an implied value, and tells
 you how to farm each one. Read the validation first: it is the whole point.
 The strip at the top of the page carries the same numbers, so the first
-screenshot shows the proof, not just the board.
+screenshot shows the proof, not just the board. The headline number is the
+blind test: a listed-date split, not leave-one-out. And the census below
+accounts for all 758 protocols in the snapshot, not just the 198 on the
+board.
 
 ## The model
 
@@ -57,23 +60,59 @@ regression fixes that. What follows is what the model does about it.
 
 ## How it is validated (inside the program, not asserted)
 
-Leave-one-out, computed by the program itself on the sealed snapshot:
-hold out one comp, refit the curve on the other 127, predict the held-out
-comp's market cap, take |log(predicted / actual)|. Median over all 128
-comps: **x3.45**. Mean log error: **1.625** — the median is the headline,
-the mean is the tail, and both are shown. The starter's flat 0.25x TVL
-multiple scores x5.11 on the same test, so the curve is a real improvement,
-not a new coat of paint.
+The headline is the blind test. A listed-date split trains on the 64 comps
+listed before 2025-01-01 and tests on the 31 listed since: median error
+**x2.98**. These are different protocols the model never saw, so this is
+the closest thing to an out-of-sample test a single-date snapshot allows —
+the closest this board comes to pricing a launch it has never seen. It is
+a listed-date split, not a walk-forward: the snapshot is one date
+(2026-11-14), so a true time split is impossible from it, and this note
+does not claim otherwise.
 
-A listed-date split trains on the 64 comps listed before 2025-01-01 and
-tests on the 31 listed since: median error **x2.98**. It is a listed-date
-split, not a walk-forward: the snapshot is one date (2026-11-14), so a true
-time split is impossible from it, and this note does not claim otherwise.
+Leave-one-out supports it, computed by the program itself on the sealed
+snapshot: hold out one comp, refit the curve on the other 127, predict the
+held-out comp's market cap, take |log(predicted / actual)|. Median over
+all 128 comps: **x3.45**. Mean log error: **1.625** — the median is the
+headline, the mean is the tail, and both are shown. The starter's flat
+0.25x TVL multiple scores x5.11 on the same test, so the curve is a real
+improvement, not a new coat of paint.
 
 Per-category LOO (categories with 5+ comps): RWA x1.73, Basis Trading
 x2.22, Bridge x2.96, Liquid Staking x3.08, Yield x3.98, Dexs x4.35,
 Lending x5.63, CEX x8.29, Canonical Bridge x8.73. The curve is most
 reliable where tokens behave most alike, and least where they do not.
+
+## Census: all 758 protocols accounted for
+
+The snapshot carries 758 protocols. The board ranks 198. The other 560
+are not hidden; they are counted, and the reason each one is not ranked is
+stated. The program computes every bucket at run time from the snapshot —
+no count is typed in by hand:
+
+- Ranked on the board: 198 — pre-token and rankable, 40 watchlist plus
+  158 early.
+- Live token view: 24 — already trade, top 24 by market cap; the market's
+  own value, not a model.
+- Tokenized comps beyond the live view: 95 — have a traded token and a
+  market cap above zero, so the curve is fitted on them, but sit below the
+  live view's top 24.
+- Tokenized exchanges: 14 — centralized exchanges with a token, kept out
+  of the live view because an exchange token is not a claim on DeFi TVL.
+- Token recorded, market cap missing: 269 — a CoinGecko id or a symbol is
+  recorded but no market cap, so they cannot be comps and cannot be
+  ranked.
+- Market cap 0 or -1: 14 — a token is recorded but the market cap is 0 or
+  -1: broken data, dropped from the comps.
+- Pre-token, excluded by the board's rule: 144 — no token on record, but
+  excluded: CEX 42, Liquid Staking 38, Bridge 28, Canonical Bridge 15,
+  versioned pool 11, wrapped or staked product 5, Liquid Restaking 3,
+  Restaked BTC 2.
+
+198 + 24 + 95 + 14 + 269 + 14 + 144 = 758. The excluded 144 are the
+board's own rule applied honestly: an exchange, a bridge or a
+liquid-staking product is not a farmable launch in the sense this board
+means, and a versioned pool or a wrapped product is a second claim on
+another protocol's TVL.
 
 ## Where the model breaks: the ten worst misses
 
@@ -138,6 +177,53 @@ fewer farmers competing), between 0.07% and 0.14%. The cost is the capital
 $50, SKIP at or below $50. On this snapshot: FARM 52, THIN 145, SKIP 1.
 The assumptions are stated on the page; change them and the verdicts move,
 which is the honest way to read them.
+
+## Money, time, quality — the iron triangle
+
+A farm plan is judged on three sides, and no plan is good at all three.
+Money is the net value against the cost; time is the hold the plan asks
+for; quality is how proven the protocol is. Every plan shows its three
+scores and leans on its two strongest sides; the third side is the
+trade-off. The counts are computed from the board itself: 58 plans lean
+on money and time, 54 on money and quality, 86 on time and quality.
+
+Money: net / cost, scaled so a net of five times the cost scores 1.0.
+Time: the hold — 30 days scores 1.0, 45 days 0.5, 60 days 0.0; the active
+work is about 1.3 hours for a 30-day hold and 2 hours for a 60-day hold
+(30 minutes to set up and claim, plus 10 minutes a week). Quality is a
+0-100 score from snapshot figures only, never a name:
+
+    quality = 100 * (0.35 * size + 0.25 * age + 0.20 * stability + 0.20 * category)
+
+Size is log TVL over $1M-$10B. Age is days listed without a token over 3
+years (unknown age counts as 365 days, as the model does). Stability is
+how close the seven-day change is to zero. Category is the category's
+leave-one-out reliability against the best category (RWA, x1.73). Labels:
+High at 70, Medium at 45, else Low. On this snapshot: High 10, Medium
+142, Low 46. Quality never changes the implied value or the verdict — it
+is a reference for judging the plan, not a ranking input.
+
+Three protocols show the three trade-offs:
+
+- Money + time — loopscale-lending (rank 47, Lending). Net $374 on a
+  cost of $75, a 30-day hold, about 1.3 hours of work. Money 1.00, time
+  1.00, quality 0.51. Cheap and fast; the trade-off is quality 51
+  (Medium) — TVL $71M, 480 days listed, seven-day change -14.1%.
+- Money + quality — theo-network-thusd (rank 36, RWA). Net $344 on a
+  cost of $125, quality 60 (Medium) — TVL $139M, seven-day change +0.01%,
+  rock-steady. Money 0.55, quality 0.60, time 0.00. The trade-off is time:
+  a 60-day hold, about 2 hours of work, so the capital is tied up longest.
+- Time + quality — binaryx-platform (rank 133, RWA). A 30-day hold,
+  about 1.3 hours of work, quality 72 (High) — 1,017 days listed,
+  seven-day change +0.00%. Time 1.00, quality 0.72, money 0.24. Fast and
+  proven; the trade-off is money: a net of $89 on a cost of $75 leaves
+  little room for the model being wrong, and the verdict is THIN.
+
+The exception, stated honestly: 5 of 198 rows score high on all three at
+once (a net at least four times the cost, a 30-day hold, and quality 70 or
+above) — steakhouse-financial, veda, usdd, polymarket-international,
+onre. They are the largest, most established rows. For the other 193, the
+triangle holds: pick two.
 
 ## Limits, stated plainly
 

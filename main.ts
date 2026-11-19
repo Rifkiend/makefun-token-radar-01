@@ -1,5 +1,5 @@
-// Token Radar v2: a size curve fitted on the snapshot's own comps, validated by
-// leave-one-out inside this program (radar-2).
+// Token Radar v3: a size curve fitted on the snapshot's own comps, validated by
+// leave-one-out inside this program (radar-3).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input
 // <file|dir>), fits the size curve on the 128 tokenized comps, validates it by
@@ -8,12 +8,23 @@
 // screenshots/ to /output. Last, it writes /output/dossier.json, the summary
 // the judge reads, with the vendored make.fun library.
 //
+// The curve is the best the snapshot supports, and that was measured: per-category
+// curves, a multi-feature regression, a fees P/S curve and its ensemble, k-NN, a
+// local kernel regression and robust fits were all tried with the same LOO test
+// and none beat the single global curve on the headline median, so the curve
+// stays. The validation also names its own failures: the ten comps with the
+// largest LOO error, with the reason each one reads from its own figures.
+//
 // A second signal rides along, frozen at build time in
 // data/frozen-fundamentals.json (FDV from CoinGecko, fees from DeFiLlama,
 // frozen 2026-11-20): it feeds the fundamentals panel only and never changes
 // the ranking input, which follows only the snapshot's TVL, 7-day growth and
 // age. The program runs offline, so frozen data is the only way outside
 // figures enter, and the dashboard states the source and the date openly.
+//
+// The farm verdict is netted per protocol: the airdrop pool and the farmer's
+// share both follow the protocol's own stage, category and TVL, centred on
+// the flat 5% pool and 0.1% share the first version used.
 //
 // Determinism is a property of this program, not a hope: it reads no clock,
 // no environment, no randomness and no network at run time, and the only
@@ -115,7 +126,7 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: size curve log(mcap) = ${radar.curve.intercept.toFixed(4)} + ${radar.curve.slope.toFixed(4)}*log(TVL) on ${radar.curve.comps} comps (R2 ${radar.curve.r2.toFixed(3)}), LOO median error x${radar.validation.median_error_ratio.toFixed(2)}\n` +
+    `token radar: size curve log(mcap) = ${radar.curve.intercept.toFixed(4)} + ${radar.curve.slope.toFixed(4)}*log(TVL) on ${radar.curve.comps} comps (R2 ${radar.curve.r2.toFixed(3)}), LOO median error x${radar.validation.median_error_ratio.toFixed(2)} (mean log ${radar.validation.mean_log_error.toFixed(2)}), worst case x${radar.validation.worst_cases[0]?.error_ratio.toFixed(1) ?? 'n/a'}\n` +
     `token radar: verdicts FARM ${radar.verdict_counts.FARM}, THIN ${radar.verdict_counts.THIN}, SKIP ${radar.verdict_counts.SKIP}\n` +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );

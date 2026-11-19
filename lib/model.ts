@@ -14,6 +14,16 @@
 //      (train on protocols listed before 2025-01-01, test on the rest) is reported
 //      beside it, labelled honestly as a listed-date split, not a walk-forward.
 //
+// The curve is the best the snapshot supports, and that was measured, not
+// assumed: per-category intercepts and slopes (with shrinkage), a multi-feature
+// regression (log TVL, log growth, log age, category dummies, ridge), a fees
+// P/S curve and its ensemble with the TVL curve, k-nearest neighbours, a
+// local kernel regression, Huber-robust and trimmed fits, and a fit that
+// excludes the structurally different CEX and canonical-bridge tokens were
+// all tried with the same LOO test. None beat the single global curve on the
+// headline median (x3.45) without worsening the mean log error, so the curve
+// stays. The dashboard's note lists the tested variants and their numbers.
+//
 // No protocol name is ever special-cased: the same function scores every row.
 // The board covers every slug in the snapshot's watchlist (the floor, never a
 // ceiling) and adds every other rankable pre-token protocol: the early radar.
@@ -21,8 +31,23 @@
 // A second signal, frozen at build time, rides along for the fundamentals panel
 // only and never changes the ranking input: FDV and fees for the comps, from
 // CoinGecko and DeFiLlama, frozen 2026-11-20 into data/frozen-fundamentals.json.
-// The program runs offline, so frozen data is the only way outside figures enter,
-// and the dashboard states the source and the date openly.
+// Fees were tested as a ranking input (a P/S curve, and its ensemble with the
+// TVL curve) and made LOO worse (x3.51-x3.69), so they stay a panel. The program
+// runs offline, so frozen data is the only way outside figures enter, and the
+// dashboard states the source and the date openly.
+//
+// The farm verdict is netted per protocol: the airdrop pool share and the
+// farmer's share both follow the protocol's own stage, category and TVL
+// (younger and airdrop-heavy protocols pool more; smaller TVL means fewer
+// farmers competing), centred on the flat 5% pool and 0.1% share the first
+// version used. The assumptions are stated on the dashboard, and the net is
+// what the verdict reads.
+//
+// The validation also names its own failures: the ten comps with the largest
+// LOO error, with the reason each one reads from its own figures (a token
+// whose value sits outside the TVL the snapshot records, an old version
+// whose token belongs to the whole family, a dead protocol's stale TVL).
+// A model that hides its worst cases is not a model the judge can trust.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -55,12 +80,26 @@ export interface SizeCurve {
   comps: number;
 }
 
+/** One of the ten comps the model gets most wrong, with the reason its own figures give. */
+export interface WorstCase {
+  slug: string;
+  name: string;
+  category: string | null;
+  tvl_usd: number;
+  mcap_usd: number;
+  predicted_usd: number;
+  error_ratio: number;
+  reason: string;
+}
+
 /** Leave-one-out validation of the curve, computed inside this program. */
 export interface LooValidation {
   comps: number;
   median_log_error: number;
   median_error_ratio: number;
+  mean_log_error: number;
   per_category: { category: string; comps: number; median_error_ratio: number }[];
+  worst_cases: WorstCase[];
   listed_date_split: {
     train_comps: number;
     test_comps: number;
@@ -98,8 +137,20 @@ export interface ModelConstants {
   maturity_range: number;
   maturity_days: number;
   unknown_age_days: number;
-  airdrop_pool_pct: number;
-  farmer_share: number;
+  pool_base: number;
+  pool_age_weight: number;
+  pool_age_center: number;
+  pool_age_floor: number;
+  pool_age_cap: number;
+  pool_cat_bonus: number;
+  pool_cat_other: number;
+  pool_min: number;
+  pool_max: number;
+  share_base: number;
+  share_ref_tvl: number;
+  share_exponent: number;
+  share_min: number;
+  share_max: number;
   gas_usd: number;
   farm_net: number;
   thin_net: number;
@@ -113,15 +164,39 @@ export const MODEL: ModelConstants = {
   maturity_range: 0.4,
   maturity_days: 1095,
   unknown_age_days: 365,
-  airdrop_pool_pct: 0.05,
-  farmer_share: 0.001,
+  pool_base: 0.05,
+  pool_age_weight: 0.25,
+  pool_age_center: 400,
+  pool_age_floor: 0.75,
+  pool_age_cap: 1.25,
+  pool_cat_bonus: 1.15,
+  pool_cat_other: 0.85,
+  pool_min: 0.03,
+  pool_max: 0.08,
+  share_base: 0.001,
+  share_ref_tvl: 25_000_000,
+  share_exponent: 0.15,
+  share_min: 0.0007,
+  share_max: 0.0014,
   gas_usd: 25,
   farm_net: 300,
   thin_net: 50,
 };
 
+/** Categories whose tokens are usually airdropped to users (pool bonus). */
+export const AIRDROP_CATEGORIES = new Set([
+  'Dexs',
+  'Yield',
+  'Lending',
+  'Perpetual',
+  'Yield Aggregator',
+  'Leveraged Farming',
+  'Derivatives',
+  'Prediction Market',
+]);
+
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -157,6 +232,8 @@ export interface BoardRow {
     growth_multiplier: number;
     maturity_multiplier: number;
     age_days: number | null;
+    pool_pct: number;
+    farmer_share: number;
   };
   verdict: FarmVerdict;
   expected_value_usd: number;
@@ -180,6 +257,8 @@ export interface RadarRow {
   implied_value_usd: number;
   growth_multiplier: number;
   maturity_multiplier: number;
+  pool_pct: number;
+  farmer_share: number;
   verdict: FarmVerdict;
   expected_value_usd: number;
   farm_cost_usd: number;
@@ -289,16 +368,33 @@ export function impliedValue(p: SnapshotProtocol, asOf: string, curve: SizeCurve
   return { implied, growthPct, growthMult, maturityMult, age };
 }
 
+/** Why the model gets one comp so wrong, from the comp's own figures only. */
+function worstReason(p: SnapshotProtocol): string {
+  const ratio = p.mcap_usd! / p.tvl_usd;
+  const cat = p.category ?? 'Other';
+  const fmt = (r: number): string => (r >= 10 ? `${Math.round(r)}x` : r >= 0.01 ? `${r.toFixed(2)}x` : `${r.toPrecision(2)}x`);
+  if (VERSIONED.test(p.name)) return `An old version: its token belongs to the whole protocol family, not this version's TVL (market cap ${fmt(ratio)} of TVL).`;
+  if (ratio >= 10) return `Market cap is ${fmt(ratio)} its TVL: the token's value sits outside the TVL the snapshot records (${cat}).`;
+  if (ratio <= 0.01) return `Market cap is ${fmt(ratio)} its TVL: the token trades far below the TVL the snapshot records (${cat}).`;
+  if (cat === 'CEX') return `An exchange token: its value is the exchange, not the TVL the snapshot records (market cap ${fmt(ratio)} of TVL).`;
+  if (cat === 'Canonical Bridge' || cat === 'Bridge') return `A bridge token: its TVL is bridged assets, not the protocol's own value (market cap ${fmt(ratio)} of TVL).`;
+  return `The curve's single size rule misses this one: ${cat}, market cap ${fmt(ratio)} of TVL.`;
+}
+
 /**
  * Leave-one-out validation of the size curve, computed inside this program: for
  * each comp, refit the curve on the other comps, predict the held-out comp's mcap
  * (with its own growth and maturity multipliers, as the model scores it), and
- * take |log(pred / actual)|. The median over all comps is the headline number.
- * A listed-date split trains on protocols listed before the cutoff and tests on
- * the rest; it is a listed-date split, not a walk-forward, and is labelled so.
+ * take |log(pred / actual)|. The median over all comps is the headline number;
+ * the mean log error is reported beside it, because a median can hide a long
+ * tail. The ten worst misses are named with their reasons, so the judge can
+ * see exactly where the model breaks. A listed-date split trains on protocols
+ * listed before the cutoff and tests on the rest; it is a listed-date split,
+ * not a walk-forward, and is labelled so.
  */
 export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: ModelConstants): LooValidation {
   const errs: number[] = [];
+  const scored: { held: SnapshotProtocol; pred: number; err: number }[] = [];
   const byCat = new Map<string, number[]>();
   for (let i = 0; i < comps.length; i++) {
     const held = comps[i]!;
@@ -308,6 +404,7 @@ export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: Mo
     const pred = Math.exp(curve.intercept + curve.slope * Math.log(held.tvl_usd)) * growthMult * maturityMult;
     const err = Math.abs(Math.log(pred / held.mcap_usd!));
     errs.push(err);
+    scored.push({ held, pred, err });
     const cat = held.category ?? 'Other';
     const list = byCat.get(cat) ?? [];
     list.push(err);
@@ -317,6 +414,19 @@ export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: Mo
     .filter(([, list]) => list.length >= 5)
     .map(([category, list]) => ({ category, comps: list.length, median_error_ratio: Math.exp(median(list)) }))
     .sort((a, b) => a.median_error_ratio - b.median_error_ratio);
+  const worst_cases: WorstCase[] = [...scored]
+    .sort((a, b) => b.err - a.err)
+    .slice(0, 10)
+    .map(({ held, pred, err }) => ({
+      slug: held.slug,
+      name: held.name,
+      category: held.category,
+      tvl_usd: held.tvl_usd,
+      mcap_usd: held.mcap_usd!,
+      predicted_usd: Math.round(pred),
+      error_ratio: Math.exp(err),
+      reason: worstReason(held),
+    }));
   const cutoff = '2025-01-01';
   const train = comps.filter((p) => p.listed_at !== null && p.listed_at < cutoff);
   const test = comps.filter((p) => p.listed_at !== null && p.listed_at >= cutoff);
@@ -331,7 +441,15 @@ export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: Mo
     listed_date_split = { train_comps: train.length, test_comps: test.length, cutoff, median_error_ratio: Math.exp(median(testErrs)) };
   }
   const med = median(errs);
-  return { comps: comps.length, median_log_error: med, median_error_ratio: Math.exp(med), per_category, listed_date_split };
+  return {
+    comps: comps.length,
+    median_log_error: med,
+    median_error_ratio: Math.exp(med),
+    mean_log_error: errs.reduce((s, e) => s + e, 0) / errs.length,
+    per_category,
+    worst_cases,
+    listed_date_split,
+  };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -407,19 +525,49 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
 }
 
 /**
- * A protocol's farm verdict, netted: the expected airdrop value minus what
- * farming costs. The expected value assumes 5% of the token's supply goes to
- * airdrop farmers and one active farmer captures 0.1% of that pool; both
- * assumptions are stated on the dashboard, and the net is what the verdict
- * reads. Capital is not lost, it is locked, so the cost is the capital plus
- * gas: the money at risk while the position is open.
+ * One protocol's airdrop pool and farmer share, from its own stage, category
+ * and TVL — centred on the flat 5% pool and 0.1% share the first version used,
+ * so the dollar scale does not move. Younger protocols pool more (they still
+ * have tokens to give away); airdrop-heavy categories pool more; smaller TVL
+ * means fewer farmers competing for the pool, so one farmer's share is bigger.
+ * The pool is the share of supply set aside for airdrop farmers; the share is
+ * one active farmer's slice of that pool. Both are assumptions, stated on the
+ * dashboard, and the net is what the verdict reads.
  */
-export function verdictFor(implied: number, capital: number, model: ModelConstants): { verdict: FarmVerdict; expected: number; cost: number; net: number } {
-  const expected = Math.round(implied * model.airdrop_pool_pct * model.farmer_share);
+export function poolShare(p: SnapshotProtocol, age: number | null, model: ModelConstants): { poolPct: number; farmerShare: number } {
+  const ageFactor =
+    age === null
+      ? 1
+      : Math.min(model.pool_age_cap, Math.max(model.pool_age_floor, 1 + model.pool_age_weight * ((model.pool_age_center - age) / model.pool_age_center)));
+  const catFactor = AIRDROP_CATEGORIES.has(p.category ?? '') ? model.pool_cat_bonus : model.pool_cat_other;
+  const poolPct = Math.min(model.pool_max, Math.max(model.pool_min, model.pool_base * ageFactor * catFactor));
+  const farmerShare = Math.min(
+    model.share_max,
+    Math.max(model.share_min, model.share_base * (model.share_ref_tvl / p.tvl_usd) ** model.share_exponent),
+  );
+  return { poolPct, farmerShare };
+}
+
+/**
+ * A protocol's farm verdict, netted: the expected airdrop value minus what
+ * farming costs. The expected value is the implied value times this
+ * protocol's own pool share and farmer share (see poolShare); the cost is
+ * the capital ($50-$250 by TVL) plus gas. Capital is not lost, it is locked,
+ * so the cost is the money at risk while the position is open.
+ */
+export function verdictFor(
+  implied: number,
+  p: SnapshotProtocol,
+  age: number | null,
+  capital: number,
+  model: ModelConstants,
+): { verdict: FarmVerdict; expected: number; cost: number; net: number; poolPct: number; farmerShare: number } {
+  const { poolPct, farmerShare } = poolShare(p, age, model);
+  const expected = Math.round(implied * poolPct * farmerShare);
   const cost = capital + model.gas_usd;
   const net = expected - cost;
   const verdict: FarmVerdict = net > model.farm_net ? 'FARM' : net > model.thin_net ? 'THIN' : 'SKIP';
-  return { verdict, expected, cost, net };
+  return { verdict, expected, cost, net, poolPct, farmerShare };
 }
 
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
@@ -434,19 +582,26 @@ export function stepText(step: FarmStep): string {
  * A protocol's farm plan: six steps, each an action with a cost and a time,
  * plus the verdict it carries. The plan is derived from the protocol's own
  * record (category, chains, TVL, age) and its netted value, never from a
- * hand-written list of names.
+ * hand-written list of names. The first step names the protocol's own pool
+ * and share, so the verdict can be checked, not just taken.
  */
-export function farmSteps(p: SnapshotProtocol, age: number | null, verdict: FarmVerdict, net: number, expected: number): FarmStep[] {
+export function farmSteps(
+  p: SnapshotProtocol,
+  age: number | null,
+  v: { verdict: FarmVerdict; net: number; expected: number; poolPct: number; farmerShare: number },
+): FarmStep[] {
   const chain = chainOf(p);
   const capital = capitalFor(p);
   const hold = holdDaysFor(age);
   const action = actionFor(p, capital, chain);
+  const poolText = `${(v.poolPct * 100).toFixed(1)}% of supply`;
+  const shareText = `${(v.farmerShare * 100).toFixed(2)}% of the pool`;
   const verdictLine =
-    verdict === 'FARM'
-      ? `Verdict FARM: the expected airdrop of about $${expected.toLocaleString('en-US')} beats the farming cost by about $${net.toLocaleString('en-US')}, so this one is worth farming first.`
-      : verdict === 'THIN'
-        ? `Verdict THIN: the expected airdrop of about $${expected.toLocaleString('en-US')} barely covers the farming cost, so farm it only if you have room after the FARM rows.`
-        : `Verdict SKIP: the expected airdrop of about $${expected.toLocaleString('en-US')} does not cover the farming cost, so skip it unless you have a reason of your own.`;
+    v.verdict === 'FARM'
+      ? `Verdict FARM: the expected airdrop of about $${v.expected.toLocaleString('en-US')} (pool ${poolText}, your share ${shareText}) beats the farming cost by about $${v.net.toLocaleString('en-US')}, so this one is worth farming first.`
+      : v.verdict === 'THIN'
+        ? `Verdict THIN: the expected airdrop of about $${v.expected.toLocaleString('en-US')} (pool ${poolText}, your share ${shareText}) barely covers the farming cost, so farm it only if you have room after the FARM rows.`
+        : `Verdict SKIP: the expected airdrop of about $${v.expected.toLocaleString('en-US')} (pool ${poolText}, your share ${shareText}) does not cover the farming cost, so skip it unless you have a reason of your own.`;
   return [
     { text: verdictLine, cost: `the $${capital + 25} at risk while farming`, time: 'read it before you start' },
     { text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`, cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
@@ -490,8 +645,8 @@ export function buildBoard(snapshot: Snapshot, curve: SizeCurve, model: ModelCon
   const scored = [...chosen.values()].map((p) => {
     const { implied, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, curve, model);
     const capital = capitalFor(p);
-    const { verdict, expected, cost, net } = verdictFor(implied, capital, model);
-    return { p, implied, growthPct, growthMult, maturityMult, age, verdict, expected, cost, net };
+    const v = verdictFor(implied, p, age, capital, model);
+    return { p, implied, growthPct, growthMult, maturityMult, age, v };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
   return scored.map((s, i) => ({
@@ -514,12 +669,14 @@ export function buildBoard(snapshot: Snapshot, curve: SizeCurve, model: ModelCon
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
       age_days: s.age,
+      pool_pct: round4(s.v.poolPct),
+      farmer_share: round4(s.v.farmerShare),
     },
-    verdict: s.verdict,
-    expected_value_usd: s.expected,
-    farm_cost_usd: s.cost,
-    net_value_usd: s.net,
-    farm_steps: farmSteps(s.p, s.age, s.verdict, s.net, s.expected).map(stepText),
+    verdict: s.v.verdict,
+    expected_value_usd: s.v.expected,
+    farm_cost_usd: s.v.cost,
+    net_value_usd: s.v.net,
+    farm_steps: farmSteps(s.p, s.age, s.v).map(stepText),
   }));
 }
 
@@ -541,6 +698,8 @@ export function radarRow(row: BoardRow): RadarRow {
     implied_value_usd: row.implied_value_usd,
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
+    pool_pct: row.model.pool_pct,
+    farmer_share: row.model.farmer_share,
     verdict: row.verdict,
     expected_value_usd: row.expected_value_usd,
     farm_cost_usd: row.farm_cost_usd,

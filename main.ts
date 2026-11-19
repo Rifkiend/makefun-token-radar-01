@@ -1,12 +1,16 @@
 // Token Radar v3: a size curve fitted on the snapshot's own comps, validated by
-// leave-one-out inside this program (radar-3).
+// a blind test inside this program (radar-4).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input
 // <file|dir>), fits the size curve on the 128 tokenized comps, validates it by
-// leave-one-out, scores every rankable pre-token protocol, writes the ranked
-// board to /output/board.json, and copies this repository's dashboard/ and
-// screenshots/ to /output. Last, it writes /output/dossier.json, the summary
-// the judge reads, with the vendored make.fun library.
+// a listed-date split — train on the comps listed before 2025, test on the
+// ones listed since, a blind test the model never sees while it is fitted —
+// and by leave-one-out beside it, scores every rankable pre-token protocol,
+// writes the ranked board to /output/board.json, and copies this repository's
+// dashboard/ and screenshots/ to /output. Last, it writes /output/dossier.json,
+// the summary the judge reads, with the vendored make.fun library. The census
+// counts every protocol in the snapshot, each in exactly one bucket, so no
+// protocol is silently dropped.
 //
 // The curve is the best the snapshot supports, and that was measured: per-category
 // curves, a multi-feature regression, a fees P/S curve and its ensemble, k-NN, a
@@ -88,6 +92,17 @@ if (issue !== null) {
   process.stderr.write(`token radar: the model wrote a board the gate refuses: ${issue}\n`);
   process.exit(1);
 }
+const qualityCounts = { High: 0, Medium: 0, Low: 0 };
+const leanCounts: Record<string, number> = {};
+for (const r of board) {
+  qualityCounts[r.model.quality.label]++;
+  leanCounts[r.model.tradeoff.leans] = (leanCounts[r.model.tradeoff.leans] ?? 0) + 1;
+}
+const censusSum = radar.census.buckets.reduce((s, b) => s + b.count, 0);
+if (censusSum !== radar.census.total) {
+  process.stderr.write(`token radar: census buckets sum to ${censusSum}, not ${radar.census.total}\n`);
+  process.exit(1);
+}
 
 mkdirSync(out, { recursive: true });
 writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
@@ -126,7 +141,9 @@ writeFileSync(join(out, 'dossier.json'), buildDossier(out, { text_max_bytes: TEX
 
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-    `token radar: size curve log(mcap) = ${radar.curve.intercept.toFixed(4)} + ${radar.curve.slope.toFixed(4)}*log(TVL) on ${radar.curve.comps} comps (R2 ${radar.curve.r2.toFixed(3)}), LOO median error x${radar.validation.median_error_ratio.toFixed(2)} (mean log ${radar.validation.mean_log_error.toFixed(2)}), worst case x${radar.validation.worst_cases[0]?.error_ratio.toFixed(1) ?? 'n/a'}\n` +
+    `token radar: census ${radar.census.total} accounted for: ${radar.census.buckets.map((b) => `${b.key} ${b.count}`).join(', ')}\n` +
+    `token radar: size curve log(mcap) = ${radar.curve.intercept.toFixed(4)} + ${radar.curve.slope.toFixed(4)}*log(TVL) on ${radar.curve.comps} comps (R2 ${radar.curve.r2.toFixed(3)}), blind test (listed-date split) x${radar.validation.listed_date_split?.median_error_ratio.toFixed(2) ?? 'n/a'}, LOO median error x${radar.validation.median_error_ratio.toFixed(2)} (mean log ${radar.validation.mean_log_error.toFixed(2)}), worst case x${radar.validation.worst_cases[0]?.error_ratio.toFixed(1) ?? 'n/a'}\n` +
     `token radar: verdicts FARM ${radar.verdict_counts.FARM}, THIN ${radar.verdict_counts.THIN}, SKIP ${radar.verdict_counts.SKIP}\n` +
+    `token radar: quality High ${qualityCounts.High}, Medium ${qualityCounts.Medium}, Low ${qualityCounts.Low}; leans ${Object.entries(leanCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}\n` +
     `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')}, ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
 );

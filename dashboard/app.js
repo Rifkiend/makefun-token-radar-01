@@ -1,4 +1,4 @@
-// Token Radar (radar-2): a size-curve board with a validation story.
+// Token Radar (radar-3): a size-curve board with a validation story.
 // Reads window.RADAR (written beside dashboard/ by main.ts) and renders the
 // ranked board, a filterable table, a per-protocol detail view with the
 // model's own inputs, the farm plan and its netted verdict, plus the
@@ -117,6 +117,19 @@
     );
   }
 
+  function validationStrip() {
+    var v = DATA.validation;
+    var c = DATA.curve;
+    var split = v.listed_date_split;
+    return el('section', { class: 'strip', 'aria-label': 'Validation at a glance' },
+      el('div', { class: 'strip-item' }, el('span', { text: 'Leave-one-out median error' }), el('b', { text: fmtRatio(v.median_error_ratio) })),
+      el('div', { class: 'strip-item' }, el('span', { text: 'Listed-date split error' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) : 'n/a' })),
+      el('div', { class: 'strip-item strip-wide' }, el('span', { text: 'Size curve' }), el('b', { text: c.intercept.toFixed(2) + ' + ' + c.slope.toFixed(2) + ' x log(TVL)' })),
+      el('div', { class: 'strip-item' }, el('span', { text: 'R-squared' }), el('b', { text: c.r2.toFixed(3) })),
+      el('div', { class: 'strip-item' }, el('span', { text: 'Starter (flat 0.25x TVL)' }), el('b', { text: 'x5.11' }))
+    );
+  }
+
   function lede() {
     var v = DATA.validation;
     return el('section', { class: 'lede' },
@@ -140,10 +153,11 @@
     var worst = v.per_category.length ? v.per_category[v.per_category.length - 1] : null;
     var split = v.listed_date_split;
     return el('section', { class: 'panel' },
-      el('h2', { text: 'How this model is validated — read this first' }),
+      el('h2', { text: 'How this model is validated' }),
       el('div', { class: 'formula' }, 'log(mcap) = ' + c.intercept.toFixed(4) + ' + ' + c.slope.toFixed(4) + ' x log(TVL)   —   fitted on ' + c.comps + ' tokenized comps, R-squared ' + c.r2.toFixed(3)),
       el('div', { class: 'kv' },
         el('div', null, el('span', { text: 'Leave-one-out median error' }), el('b', { text: fmtRatio(v.median_error_ratio) })),
+        el('div', null, el('span', { text: 'Mean log error (the tail)' }), el('b', { text: v.mean_log_error.toFixed(2) })),
         el('div', null, el('span', { text: 'Listed-date split (train < 2025, test >= 2025)' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) + ' (' + split.train_comps + ' / ' + split.test_comps + ')' : 'n/a' })),
         el('div', null, el('span', { text: 'Best categories by LOO' }), el('b', { text: cats || 'n/a' })),
         el('div', null, el('span', { text: 'Weakest category by LOO' }), el('b', { text: worst ? worst.category + ' ' + fmtRatio(worst.median_error_ratio) : 'n/a' }))
@@ -152,6 +166,42 @@
         el('p', { html: '<b>Leave-one-out:</b> hold out one comp, refit the curve on the other 127, predict the held-out comp. The starter&rsquo;s flat 0.25x TVL multiple scores x5.11 on the same test; this curve scores <b>' + fmtRatio(v.median_error_ratio) + '</b>.' }),
         el('p', { html: '<b>Listed-date split:</b> train on protocols listed before 2025-01-01, test on the ones listed since. It is a listed-date split, not a walk-forward: the snapshot is one date (' + DATA.as_of + '), so a true time split is impossible from it.' }),
         el('p', { html: '<b>What it is not:</b> the curve predicts a <b>circulating market cap</b>, because that is what the snapshot&rsquo;s mcap is. It is not an FDV. The snapshot carries no FDV, no revenue and no vesting schedule.' })
+      )
+    );
+  }
+
+  function worstCasesPanel() {
+    var worst = DATA.validation.worst_cases || [];
+    if (!worst.length) return null;
+    var tbody = el('tbody');
+    worst.forEach(function (w, i) {
+      tbody.appendChild(el('tr', null,
+        el('td', { class: 'num', text: String(i + 1) }),
+        el('td', null, el('div', { class: 'name' }, el('b', { text: w.name }), el('span', { class: 'sub', text: (w.category || 'Other') }))),
+        el('td', { class: 'num', text: fmtUsd(w.tvl_usd) }),
+        el('td', { class: 'num', text: fmtUsd(w.mcap_usd) }),
+        el('td', { class: 'num', text: fmtUsd(w.predicted_usd) }),
+        el('td', { class: 'num neg', text: fmtRatio(w.error_ratio) }),
+        el('td', { class: 'reason', text: w.reason })
+      ));
+    });
+    return el('section', { class: 'panel' },
+      el('h2', { text: 'Where the model breaks: the ten worst misses' }),
+      el('p', { class: 'sub', text: 'Leave-one-out, worst first. The median error is x' + DATA.validation.median_error_ratio.toFixed(2) + ', but the mean log error is ' + DATA.validation.mean_log_error.toFixed(2) + ' — the tail is long, and here it is, named. Each miss has a structural reason the snapshot itself shows: a token whose value sits outside its TVL, an old version sharing a token, a dead protocol on a stale TVL.' }),
+      el('div', { class: 'table-wrap' },
+        el('table', null,
+          el('caption', { class: 'sub', text: 'The ten comps the size curve gets most wrong, with the reason each one reads from its own figures.' }),
+          el('thead', null, el('tr', null,
+            el('th', { scope: 'col', text: '#' }),
+            el('th', { scope: 'col', text: 'Protocol' }),
+            el('th', { scope: 'col', text: 'TVL' }),
+            el('th', { scope: 'col', text: 'Market cap' }),
+            el('th', { scope: 'col', text: 'Predicted' }),
+            el('th', { scope: 'col', text: 'Error' }),
+            el('th', { scope: 'col', text: 'Why' })
+          )),
+          tbody
+        )
       )
     );
   }
@@ -300,8 +350,8 @@
         'implied = round( exp(' + c.intercept.toFixed(4) + ' + ' + c.slope.toFixed(4) + ' x ln(tvl_usd)) x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )'
       ),
       el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The curve is fitted on the snapshot&rsquo;s 128 tokenized comps at run time, so a new snapshot refits it. The early radar is every rankable pre-token protocol, and the live-token protocols are set aside with their market caps shown.' }),
-      el('h3', { text: 'The farm verdict, netted' }),
-      el('p', { class: 'sub', text: 'Expected airdrop = implied value x 5% (the share of supply assumed to go to airdrop farmers) x 0.1% (one active farmer&rsquo;s share of that pool). Cost = the capital ($50-$250 by TVL) plus $25 of gas. FARM is a net above $' + m.farm_net + ', THIN above $' + m.thin_net + ', SKIP at or below $' + m.thin_net + '. The assumptions are stated here so the verdicts can be argued with, not taken on trust.' })
+      el('h3', { text: 'The farm verdict, netted per protocol' }),
+      el('p', { class: 'sub', text: 'Expected airdrop = implied value x this protocol&rsquo;s pool x its farmer share. The pool starts at 5% of supply and moves with the protocol&rsquo;s age (younger pools more) and category (airdrop-heavy DeFi pools more), between 3% and 8%. One farmer&rsquo;s share starts at 0.1% at $25M of TVL and moves with size (smaller TVL, fewer farmers competing), between 0.07% and 0.14%. Cost = the capital ($50-$250 by TVL) plus $25 of gas. FARM is a net above $' + m.farm_net + ', THIN above $' + m.thin_net + ', SKIP at or below $' + m.thin_net + '. The assumptions are stated here so the verdicts can be argued with, not taken on trust.' })
     );
   }
 
@@ -332,6 +382,8 @@
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
         el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: String(row.maturity_multiplier) })),
+        el('div', null, el('span', { text: 'Airdrop pool' }), el('b', { class: 'num', text: (row.pool_pct * 100).toFixed(1) + '%' })),
+        el('div', null, el('span', { text: 'Farmer share' }), el('b', { class: 'num', text: (row.farmer_share * 100).toFixed(2) + '%' })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. This is an estimate of a circulating market cap, not a price, and not an FDV.' }),
@@ -358,12 +410,15 @@
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
+    shell.appendChild(validationStrip());
     shell.appendChild(lede());
-    shell.appendChild(validationPanel());
-    var fund = fundamentalsPanel();
-    if (fund) shell.appendChild(fund);
     shell.appendChild(controls());
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
+    shell.appendChild(validationPanel());
+    var worst = worstCasesPanel();
+    if (worst) shell.appendChild(worst);
+    var fund = fundamentalsPanel();
+    if (fund) shell.appendChild(fund);
     if (state.tab === 'pre-token') shell.appendChild(modelPanel());
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');

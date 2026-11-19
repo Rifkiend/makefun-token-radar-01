@@ -1,4 +1,4 @@
-/* Token Radar (radar-2): a dark board, built to be read at a glance. */
+/* Token Radar (radar-3): a dark board, built to be read at a glance. */
 :root {
   --bg: #0b1220;
   --panel: #111a2c;
@@ -40,6 +40,13 @@ a { color: var(--link); }
 .mark { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-dim); }
 .top-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; }
 .top-meta b { color: var(--ink); font-weight: 600; }
+
+/* Validation strip: the proof, first */
+.strip { display: flex; flex-wrap: wrap; gap: 10px; background: #0d1f16; border: 1px solid #1d4d33; border-left: 4px solid var(--accent); border-radius: var(--radius); padding: 13px 16px; margin-top: 16px; }
+.strip-item { flex: 1 1 150px; min-width: 150px; }
+.strip-item.strip-wide { flex: 1.6 1 220px; min-width: 220px; }
+.strip-item span { display: block; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+.strip-item b { display: block; font-size: 18px; margin-top: 2px; letter-spacing: -0.01em; }
 
 /* Lede */
 .lede { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; padding: 24px 0 8px; }
@@ -105,26 +112,27 @@ td.num, th.num { text-align: right; }
 .verdict.farm { background: var(--accent-dim); color: #a7f3d0; }
 .verdict.thin { background: var(--amber-dim); color: #fde68a; }
 .verdict.skip { background: #1e293b; color: var(--skip); }
+.reason { color: var(--muted); font-size: 13px; line-height: 1.45; min-width: 280px; }
 .status { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 .empty { text-align: center; padding: 34px 20px; }
 .empty h2 { margin: 0 0 6px; }
 
 /* Detail dialog */
-dialog.detail { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; max-width: 680px; width: calc(100% - 40px); padding: 0; max-height: calc(100vh - 32px); overflow-y: auto; }
+dialog.detail { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; max-width: 680px; width: calc(100% - 40px); padding: 0; max-height: calc(100vh - 16px); overflow-y: auto; }
 dialog.detail::backdrop { background: rgba(2, 6, 16, 0.72); }
-.detail-head { display: flex; justify-content: space-between; gap: 16px; padding: 14px 22px 0; }
+.detail-head { display: flex; justify-content: space-between; gap: 16px; padding: 4px 22px 0; }
 .detail-head h2 { margin: 4px 0 2px; font-size: 22px; letter-spacing: -0.02em; }
-.detail-section { padding: 4px 22px 12px; }
-.detail-section h3 { margin: 11px 0 6px; font-size: 14px; }
-.equation { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 18px; background: #0a0f1c; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+.detail-section { padding: 2px 22px 6px; }
+.detail-section h3 { margin: 5px 0 3px; font-size: 14px; }
+.equation { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px 18px; background: #0a0f1c; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
 .equation div { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
 .equation span { color: var(--muted); }
 .close { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; height: fit-content; }
 ol.steps { margin: 0; padding-left: 22px; }
-ol.steps li { margin: 6px 0; }
+ol.steps li { margin: 3px 0; }
 ol.steps li b { display: block; font-weight: 600; }
 ol.steps .cost { color: var(--muted); font-size: 13px; }
-.note { font-size: 13px; color: var(--faint); margin-top: 8px; }
+.note { font-size: 13px; color: var(--faint); margin-top: 4px; }
 @media (max-width: 760px) {
   .lede { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr 1fr; }

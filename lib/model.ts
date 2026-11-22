@@ -253,7 +253,7 @@ export const AIRDROP_CATEGORIES = new Set([
 ]);
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-6';
+export const MODEL_VERSION = 'radar-7';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;

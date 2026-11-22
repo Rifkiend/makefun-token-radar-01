@@ -1,4 +1,4 @@
-// Token Radar (radar-4): a size-curve board with a validation story.
+// Token Radar (radar-5): a size-curve board with a validation story.
 // Reads window.RADAR (written beside dashboard/ by main.ts) and renders the
 // ranked board, a filterable table, a per-protocol detail view with the
 // model's own inputs, the farm plan and its netted verdict, plus the
@@ -155,18 +155,24 @@
     var cats = v.per_category.slice(0, 4).map(function (p) { return p.category + ' ' + fmtRatio(p.median_error_ratio); }).join(', ');
     var worst = v.per_category.length ? v.per_category[v.per_category.length - 1] : null;
     var split = v.listed_date_split;
+    var size = v.size_split;
+    var boot = DATA.bootstrap;
     return el('section', { class: 'panel' },
       el('h2', { text: 'How this model is validated — blind test first' }),
       el('div', { class: 'formula' }, 'log(mcap) = ' + c.intercept.toFixed(4) + ' + ' + c.slope.toFixed(4) + ' x log(TVL)   —   fitted on ' + c.comps + ' tokenized comps, R-squared ' + c.r2.toFixed(3)),
       el('div', { class: 'kv' },
         el('div', null, el('span', { text: 'Blind test — listed-date split (train < 2025, test >= 2025)' }), el('b', { text: split ? fmtRatio(split.median_error_ratio) + ' (' + split.train_comps + ' / ' + split.test_comps + ')' : 'n/a' })),
+        el('div', null, el('span', { text: 'Second blind test — size split (train on the largest-TVL comps, test on the smallest)' }), el('b', { text: size ? fmtRatio(size.median_error_ratio) + ' (' + size.train_comps + ' / ' + size.test_comps + ')' : 'n/a' })),
         el('div', null, el('span', { text: 'Leave-one-out median error' }), el('b', { text: fmtRatio(v.median_error_ratio) })),
         el('div', null, el('span', { text: 'Mean log error (the tail)' }), el('b', { text: v.mean_log_error.toFixed(2) })),
+        el('div', null, el('span', { text: 'Bootstrap bands — median width (200 refits, seeded)' }), el('b', { text: boot ? 'x' + boot.median_width_x.toFixed(2) : 'n/a' })),
         el('div', null, el('span', { text: 'Best categories by LOO' }), el('b', { text: cats || 'n/a' })),
         el('div', null, el('span', { text: 'Weakest category by LOO' }), el('b', { text: worst ? worst.category + ' ' + fmtRatio(worst.median_error_ratio) : 'n/a' }))
       ),
       el('div', { class: 'callout' },
         el('p', { html: '<b>Blind test — listed-date split:</b> train on protocols listed before 2025-01-01 (' + (split ? split.train_comps : 0) + ' comps), test on the ones listed since (' + (split ? split.test_comps : 0) + '). These are different protocols the model never saw, so this is the closest thing to an out-of-sample test a single-date snapshot allows — and it is the headline number, at <b>' + (split ? fmtRatio(split.median_error_ratio) : 'n/a') + '</b>. It is still a listed-date split, not a walk-forward: the snapshot is one date (' + DATA.as_of + '), so a true time split is impossible from it.' }),
+        el('p', { html: '<b>Second blind test — size split:</b> train on the ' + (size ? size.train_comps : 0) + ' largest-TVL comps, test on the ' + (size ? size.test_comps : 0) + ' smallest: median error <b>' + (size ? fmtRatio(size.median_error_ratio) : 'n/a') + '</b>. The board ranks mostly smaller protocols, so this probes whether the curve still prices the small ones it is actually used for. A size split, not a walk-forward.' }),
+        el('p', { html: '<b>Uncertainty bands:</b> every implied value carries a 90% bootstrap band — ' + (boot ? boot.replicates : 0) + ' resamples of the 128 comps, refit each time, 5th-95th percentile. The median band is <b>' + (boot ? 'x' + boot.median_width_x.toFixed(2) : 'n/a') + '</b> wide; the widest is ' + (boot && boot.widest.length ? boot.widest[0].slug + ' at x' + boot.widest[0].width_x.toFixed(2) : 'n/a') + '. The bands are wide because R-squared is 0.194, and they are shown, not hidden.' }),
         el('p', { html: '<b>Leave-one-out:</b> hold out one comp, refit the curve on the other 127, predict the held-out comp. The starter&rsquo;s flat 0.25x TVL multiple scores x5.11 on the same test; this curve scores <b>' + fmtRatio(v.median_error_ratio) + '</b>.' }),
         el('p', { html: '<b>What it is not:</b> the curve predicts a <b>circulating market cap</b>, because that is what the snapshot&rsquo;s mcap is. It is not an FDV. The snapshot carries no FDV, no revenue and no vesting schedule.' })
       )
@@ -442,9 +448,11 @@
         el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: String(row.maturity_multiplier) })),
         el('div', null, el('span', { text: 'Airdrop pool' }), el('b', { class: 'num', text: (row.pool_pct * 100).toFixed(1) + '%' })),
         el('div', null, el('span', { text: 'Farmer share' }), el('b', { class: 'num', text: (row.farmer_share * 100).toFixed(2) + '%' })),
-        el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
+        el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) })),
+        el('div', null, el('span', { text: 'Band' }), el('b', { class: 'num', text: fmtUsd(row.band_lo_usd) + ' - ' + fmtUsd(row.band_hi_usd) }))
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. This is an estimate of a circulating market cap, not a price, and not an FDV.' }),
+      el('p', { class: 'sub', text: 'The band is the 5th-95th percentile of this implied value over 200 bootstrap refits of the curve (seeded, deterministic). It is x' + row.band_width_x.toFixed(2) + ' wide: with R-squared 0.194 the point estimate is a best guess inside a wide range, and the band says how wide.' }),
       el('h3', { text: 'FDV cross-check (frozen data, second signal)' }),
       el('p', { class: 'sub', text: fdvEq === null ? 'No frozen FDV median is available for this run.' : 'At the comps\u2019 median FDV/market-cap of ' + fmtRatio(f.median_fdv_mcap) + ' (frozen ' + f.as_of + '), the FDV-equivalent is about ' + fmtUsd(fdvEq) + '. It frames the implied value; it never changes the ranking.' }),
       el('h3', { text: 'Farm plan — verdict ' + row.verdict }),

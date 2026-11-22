@@ -1,4 +1,4 @@
-# Token Radar (radar-4) — a note to the judge
+# Token Radar (radar-5) — a note to the judge
 
 This dashboard ranks 198 pre-token protocols by an implied value, and tells
 you how to farm each one. Read the validation first: it is the whole point.
@@ -6,7 +6,9 @@ The strip at the top of the page carries the same numbers, so the first
 screenshot shows the proof, not just the board. The headline number is the
 blind test: a listed-date split, not leave-one-out. And the census below
 accounts for all 758 protocols in the snapshot, not just the 198 on the
-board.
+board. Every implied value also carries a 90% bootstrap band, so the judge
+can see how much the point estimate could move — the bands are wide, and
+they are shown, not hidden.
 
 ## The model
 
@@ -51,6 +53,12 @@ assumed. Every variant below was scored with the same leave-one-out test
   not come from the TVL the snapshot records): median x3.21, but mean log
   error 1.646 against 1.625 and R-squared 0.143 against 0.194 — the
   headline improves and the fit gets worse, so it was not kept either.
+- Leave-one-category-out (train on all categories but one, test on the
+  held-out category; pooled over the 83 comps in categories with 5+):
+  median x3.36. It is the same leave-one-out test re-aggregated by
+  category, and its per-category numbers mirror the per-category LOO
+  above (RWA x1.74, CEX x10.03), so it adds no new evidence and is not
+  shown as a separate validation.
 
 The multipliers cost almost nothing (the curve alone scores x3.40, with
 them x3.45) and they are the inputs the bounty names — TVL, seven-day
@@ -81,6 +89,32 @@ Per-category LOO (categories with 5+ comps): RWA x1.73, Basis Trading
 x2.22, Bridge x2.96, Liquid Staking x3.08, Yield x3.98, Dexs x4.35,
 Lending x5.63, CEX x8.29, Canonical Bridge x8.73. The curve is most
 reliable where tokens behave most alike, and least where they do not.
+
+A second blind test, in a different dimension: a size split trains on the
+64 largest-TVL comps and tests on the 64 smallest, median error **x3.72**.
+The board ranks mostly smaller protocols, so this probes whether the curve
+still prices the small ones it is actually used for. It is worse than the
+listed-date split's x2.98 and is shown as the second number, not the
+headline. It is a size split, not a walk-forward.
+
+## Uncertainty bands — bootstrap
+
+Every implied value on the board carries a 90% bootstrap band. The
+program resamples the 128 comps with replacement, refits the curve, and
+recomputes the row — 200 replicates, with a seeded PRNG (seed 20261120),
+so the bands are deterministic and the same on every run. The band is the
+5th-95th percentile over the replicates. The median band is **x1.91**
+wide (10th percentile x1.75, 90th x2.32). The widest bands sit on the
+largest rows — steakhouse-financial x3.27 ($38.6M-$126.1M around a $71.2M
+point estimate), sentora-curator x3.27, gauntlet x2.90 — because the
+curve's slope matters most far from the comps' middle, where those rows
+sit. The narrowest bands are x1.73 (ipor-fusion, axis, tori-finance).
+The bands are wide because R-squared is 0.194, and the honest reading is
+that the ranking is a point estimate with real uncertainty: the top rows'
+bands overlap each other, so rank 1 is not a claim that steakhouse is
+worth more than sentora — it is a claim that the curve puts it first.
+The bands never change the ranking or the verdicts; they say how much
+the point estimate could move if the comps had been drawn differently.
 
 ## Census: all 758 protocols accounted for
 

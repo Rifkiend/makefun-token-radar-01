@@ -1,4 +1,4 @@
-// Token Radar (radar-5): a size-curve board with a validation story.
+// Token Radar (radar-7): a size-curve board with a validation story.
 // Reads window.RADAR (written beside dashboard/ by main.ts) and renders the
 // ranked board, a filterable table, a per-protocol detail view with the
 // model's own inputs, the farm plan and its netted verdict, plus the
@@ -304,7 +304,8 @@
         )),
         el('td', null, verdictBadge(r.verdict)),
         el('td', { class: 'num ' + (r.net_value_usd >= 0 ? 'pos' : 'neg'), text: fmtSigned(r.net_value_usd) }),
-        el('td', { class: 'num', text: r.break_even_deposit_usd === null ? '—' : fmtUsd(r.break_even_deposit_usd) })
+        el('td', { class: 'num', text: r.break_even_deposit_usd === null ? '—' : fmtUsd(r.break_even_deposit_usd) }),
+        el('td', { class: 'num', text: r.quality.label })
       );
       tbody.appendChild(tr);
     });
@@ -321,7 +322,8 @@
             sortHeader('implied', 'Implied value'),
             el('th', { scope: 'col', text: 'Verdict' }),
             sortHeader('net', 'Net value'),
-            sortHeader('breakeven', 'Break even')
+            sortHeader('breakeven', 'Break even'),
+            el('th', { scope: 'col', text: 'Quality' })
           )),
           tbody
         )
@@ -461,7 +463,6 @@
       el('p', { class: 'sub', text: fdvEq === null ? 'No frozen FDV median is available for this run.' : 'At the comps\u2019 median FDV/market-cap of ' + fmtRatio(f.median_fdv_mcap) + ' (frozen ' + f.as_of + '), the FDV-equivalent is about ' + fmtUsd(fdvEq) + '. It frames the implied value; it never changes the ranking.' }),
       el('h3', { text: 'Farm plan — verdict ' + row.verdict }),
       el('p', { class: 'sub', text: 'Expected airdrop about ' + fmtUsd(row.expected_value_usd) + ', farming cost about ' + fmtUsd(row.farm_cost_usd) + ', net value ' + fmtSigned(row.net_value_usd) + '.' }),
-      el('p', { class: 'sub', text: 'Deposit to break even: ' + (row.break_even_deposit_usd === null ? 'no deposit breaks even — the expected airdrop per dollar deposited is below $1.' : 'about ' + fmtUsd(row.break_even_deposit_usd) + '.') + ' Deposit to reach FARM: ' + (row.farm_deposit_usd === null ? 'no deposit reaches it.' : 'about ' + fmtUsd(row.farm_deposit_usd) + '.') }),
       el('ol', { class: 'steps' }, row.farm_steps.map(function (s) {
         var at = s.indexOf(' Cost: ');
         var action = at >= 0 ? s.slice(0, at) : s;
@@ -469,7 +470,7 @@
         return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
       })),
       el('h3', { text: 'Money, time, quality — what this plan leans on' }),
-      el('p', { class: 'sub', text: 'Money: net ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ' (score ' + row.tradeoff.money.toFixed(2) + '). Time: about ' + row.time_active_hours + ' hours of active work spread over a ' + row.time_hold_days + '-day hold (score ' + row.tradeoff.time.toFixed(2) + '). Quality: ' + row.quality.score + '/100, ' + row.quality.label + ' (score ' + row.tradeoff.quality.toFixed(2) + '). This plan leans on ' + row.tradeoff.leans_label + ' — its two strongest sides. The third side is the trade-off: ' + (row.tradeoff.leans === 'money+time' ? 'quality is the side it relies on least (' + row.quality.score + '/100, ' + row.quality.label + ') — the value is real, but this is the dimension where the protocol scores lowest.' : row.tradeoff.leans === 'money+quality' ? 'it is slow: the hold is ' + row.time_hold_days + ' days, so the capital is tied up longest.' : 'the money is thin: a net of ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ' leaves little room for the model being wrong.') }),
+      el('p', { class: 'sub', text: 'Money: net ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ', break-even deposit ' + (row.break_even_deposit_usd === null ? 'none — no deposit breaks even' : 'about ' + fmtUsd(row.break_even_deposit_usd)) + ', FARM deposit ' + (row.farm_deposit_usd === null ? 'none' : 'about ' + fmtUsd(row.farm_deposit_usd)) + ' (score ' + row.tradeoff.money.toFixed(2) + '). Time: about ' + row.time_active_hours + ' hours of active work spread over a ' + row.time_hold_days + '-day hold (score ' + row.tradeoff.time.toFixed(2) + '; the hold is set by age: under 180 days 60, under a year 45, else 30). Quality: ' + row.quality.score + '/100, ' + row.quality.label + ' (score ' + row.tradeoff.quality.toFixed(2) + '). This plan leans on ' + row.tradeoff.leans_label + ' — its two strongest sides. The third side is the trade-off: ' + (row.tradeoff.leans === 'money+time' ? 'quality is the side it relies on least (' + row.quality.score + '/100, ' + row.quality.label + ') — the value is real, but this is the dimension where the protocol scores lowest.' : row.tradeoff.leans === 'money+quality' ? 'it is slow: the hold is ' + row.time_hold_days + ' days, so the capital is tied up longest.' : 'the money is thin: a net of ' + fmtSigned(row.net_value_usd) + ' on a cost of ' + fmtUsd(row.farm_cost_usd) + ' leaves little room for the model being wrong.') }),
       el('p', { class: 'sub', text: 'Quality is built from size ' + row.quality.size.toFixed(2) + ', age ' + row.quality.age.toFixed(2) + ', stability ' + row.quality.stability.toFixed(2) + ' and category ' + row.quality.category.toFixed(2) + ' — the formula is in the panel below the board. Quality never changes the implied value or the verdict; it is a reference for judging the plan.' }),
       el('p', { class: 'note', text: 'Safety: use a fresh wallet, claim only from the protocol\u2019s own link, and never pay to claim. A protocol records no token; the board never claims it has none.' })
     ));

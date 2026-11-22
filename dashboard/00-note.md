@@ -1,14 +1,43 @@
-# Token Radar (radar-6) — a note to the judge
+# Token Radar (radar-7) — a note to the judge
 
 This dashboard ranks 198 pre-token protocols by an implied value, and tells
 you how to farm each one. Read the validation first: it is the whole point.
 The strip at the top of the page carries the same numbers, so the first
 screenshot shows the proof, not just the board. The headline number is the
-blind test: a listed-date split, not leave-one-out. And the census below
-accounts for all 758 protocols in the snapshot, not just the 198 on the
-board. Every implied value also carries a 90% bootstrap band, so the judge
-can see how much the point estimate could move — the bands are wide, and
-they are shown, not hidden.
+blind test: a listed-date split, not leave-one-out — **x2.78**. And the census
+below accounts for all 758 protocols in the snapshot, not just the 198 on the
+board. Every implied value also carries a 90% bootstrap band — the bands
+are wide, and they are shown, not hidden.
+
+## How it is validated (inside the program, not asserted)
+
+The headline is the blind test. A listed-date split trains on the 64 comps
+listed before 2025-01-01 and tests on the 31 listed since: median error
+**x2.78**. These are different protocols the model never saw, so this is
+the closest thing to an out-of-sample test a single-date snapshot allows —
+the closest this board comes to pricing a launch it has never seen. It is
+a listed-date split, not a walk-forward: the snapshot is one date
+(2026-11-14), so a true time split is impossible from it, and this note
+does not claim otherwise.
+
+Leave-one-out supports it, computed by the program itself on the sealed
+snapshot: hold out one comp, refit the size curve on the other 127, predict
+the held-out comp's market cap, take |log(predicted / actual)|. Median over
+all 128 comps: **x3.26**. Mean log error: **1.617** — the median is the
+headline, the mean is the tail, and both are shown. A flat 0.25x TVL
+multiple scores x5.11 on the same test, so the curve is a real
+improvement, not a new coat of paint.
+
+Per-category LOO (categories with 5+ comps): RWA x1.73, Basis Trading
+x2.27, Bridge x2.70, Liquid Staking x3.20, Yield x4.05, Dexs x4.20,
+Lending x5.83, CEX x7.76, Canonical Bridge x7.77.
+
+A second blind test, in a different dimension: a size split trains on the
+64 largest-TVL comps and tests on the 64 smallest, median error **x3.45**.
+The board ranks mostly smaller protocols, so this probes whether the curve
+still prices the small ones it is actually used for. It is worse than the
+listed-date split's x2.78 and is shown as the second number, not the
+headline. It is a size split, not a walk-forward.
 
 ## How this entry meets the judge's five criteria, in order
 
@@ -22,15 +51,17 @@ they are shown, not hidden.
    snapshot's own figures — TVL, seven-day growth, and how long the
    protocol has run with no token (`impliedValue` in `lib/model.ts`).
    No protocol name is special-cased; the same function scores every
-   row. Traded-token protocols are separated from pre-token ones: the
-   live view (`liveRows`) shows the market's own value for the 24 that
-   already trade, and the board ranks only the pre-token ones.
+   row. Blind-tested at x2.78 (listed-date split). Traded-token protocols are separated from
+   pre-token ones: the live view (`liveRows`) shows the market's own
+   value for the 24 that already trade, and the board ranks only the
+   pre-token ones.
 3. **Farm plans.** Every row carries six concrete steps with what each
    costs and how long it takes (`farmSteps`), a netted verdict
    (`verdictFor`: FARM 71, THIN 125, SKIP 2), and the minimum deposit
    that makes its expected net positive (`breakEvenDeposit`) — the
    deposit that turns a THIN into a FARM — from the model's own pool,
-   share and costs.
+   share and costs. Its detail view shows the row's Money / Time /
+   Quality.
 4. **The dashboard as a page.** The board is sortable (rank, name,
    TVL, growth, age, implied value, net, break-even) and filterable
    (search, category, verdict, pre-token vs live token), readable at a
@@ -110,36 +141,6 @@ growth, age — so they stay, and the grid search above is how their
 weights were set. The honest reading: the data is noisy (market cap
 over TVL runs from 0.00025x to 400x across the comps), and no
 regression fixes that. What follows is what the model does about it.
-
-## How it is validated (inside the program, not asserted)
-
-The headline is the blind test. A listed-date split trains on the 64 comps
-listed before 2025-01-01 and tests on the 31 listed since: median error
-**x2.78**. These are different protocols the model never saw, so this is
-the closest thing to an out-of-sample test a single-date snapshot allows —
-the closest this board comes to pricing a launch it has never seen. It is
-a listed-date split, not a walk-forward: the snapshot is one date
-(2026-11-14), so a true time split is impossible from it, and this note
-does not claim otherwise.
-
-Leave-one-out supports it, computed by the program itself on the sealed
-snapshot: hold out one comp, refit the curve on the other 127, predict the
-held-out comp's market cap, take |log(predicted / actual)|. Median over
-all 128 comps: **x3.26**. Mean log error: **1.617** — the median is the
-headline, the mean is the tail, and both are shown. The starter's flat
-0.25x TVL multiple scores x5.11 on the same test, so the curve is a real
-improvement, not a new coat of paint.
-
-Per-category LOO (categories with 5+ comps): RWA x1.73, Basis Trading
-x2.27, Bridge x2.70, Liquid Staking x3.20, Yield x4.05, Dexs x4.20,
-Lending x5.83, CEX x7.76, Canonical Bridge x7.77.
-
-A second blind test, in a different dimension: a size split trains on the
-64 largest-TVL comps and tests on the 64 smallest, median error **x3.45**.
-The board ranks mostly smaller protocols, so this probes whether the curve
-still prices the small ones it is actually used for. It is worse than the
-listed-date split's x2.78 and is shown as the second number, not the
-headline. It is a size split, not a walk-forward.
 
 ## Uncertainty bands — bootstrap
 

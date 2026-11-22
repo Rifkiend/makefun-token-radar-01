@@ -1,5 +1,5 @@
-// Token Radar v4: a size curve fitted on the snapshot's own comps, validated by
-// a blind test inside this program (radar-5).
+// Token Radar v5: a size curve fitted on the snapshot's own comps, validated by
+// a blind test inside this program (radar-6).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input
 // <file|dir>), fits the size curve on the 128 tokenized comps, validates it by
@@ -9,11 +9,17 @@
 // smallest), and by leave-one-out beside both, scores every rankable
 // pre-token protocol, and puts a 90% bootstrap band on every implied value
 // (200 resamples of the comps, seeded, so the bands are deterministic).
-// It writes the ranked board to /output/board.json, and copies this
-// repository's dashboard/ and screenshots/ to /output. Last, it writes
-// /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library. The census counts every protocol in the snapshot, each
-// in exactly one bucket, so no protocol is silently dropped.
+// The curve's free multipliers (growth weight, maturity floor, range and
+// horizon) were fitted by a grid search on the 128 comps, minimizing the
+// LOO median error; the search's adopted values are in lib/model.ts.
+// Every row also carries the minimum deposit that makes its expected net
+// positive (the deposit that turns a THIN into a FARM), from the model's
+// own pool, share and costs. It writes the ranked board to
+// /output/board.json, and copies this repository's dashboard/ and
+// screenshots/ to /output. Last, it writes /output/dossier.json, the
+// summary the judge reads, with the vendored make.fun library. The census
+// counts every protocol in the snapshot, each in exactly one bucket, so no
+// protocol is silently dropped.
 //
 // The curve is the best the snapshot supports, and that was measured: per-category
 // curves, a multi-feature regression, a fees P/S curve and its ensemble, k-NN, a

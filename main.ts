@@ -1,5 +1,5 @@
-// Token Radar v5: a size curve fitted on the snapshot's own comps, validated by
-// a blind test inside this program (radar-6).
+// Token Radar v6: a size curve fitted on the snapshot's own comps, validated by
+// a blind test inside this program (radar-7).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input
 // <file|dir>), fits the size curve on the 128 tokenized comps, validates it by

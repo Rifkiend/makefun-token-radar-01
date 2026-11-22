@@ -99,6 +99,7 @@
       else if (key === 'growth') { av = a.change_7d === null ? -Infinity : a.change_7d; bv = b.change_7d === null ? -Infinity : b.change_7d; }
       else if (key === 'age') { av = a.age_days === null ? Infinity : a.age_days; bv = b.age_days === null ? Infinity : b.age_days; }
       else if (key === 'net') { av = a.net_value_usd; bv = b.net_value_usd; }
+      else if (key === 'breakeven') { av = a.break_even_deposit_usd === null ? -Infinity : a.break_even_deposit_usd; bv = b.break_even_deposit_usd === null ? -Infinity : b.break_even_deposit_usd; }
       else { av = a.implied_value_usd; bv = b.implied_value_usd; }
       if (av < bv) return -state.dir;
       if (av > bv) return state.dir;
@@ -302,7 +303,8 @@
           el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
         )),
         el('td', null, verdictBadge(r.verdict)),
-        el('td', { class: 'num ' + (r.net_value_usd >= 0 ? 'pos' : 'neg'), text: fmtSigned(r.net_value_usd) })
+        el('td', { class: 'num ' + (r.net_value_usd >= 0 ? 'pos' : 'neg'), text: fmtSigned(r.net_value_usd) }),
+        el('td', { class: 'num', text: r.break_even_deposit_usd === null ? '—' : fmtUsd(r.break_even_deposit_usd) })
       );
       tbody.appendChild(tr);
     });
@@ -318,7 +320,8 @@
             sortHeader('age', 'Age'),
             sortHeader('implied', 'Implied value'),
             el('th', { scope: 'col', text: 'Verdict' }),
-            sortHeader('net', 'Net value')
+            sortHeader('net', 'Net value'),
+            sortHeader('breakeven', 'Break even')
           )),
           tbody
         )
@@ -360,7 +363,8 @@
       ),
       el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The curve is fitted on the snapshot&rsquo;s 128 tokenized comps at run time, so a new snapshot refits it. The early radar is every rankable pre-token protocol, and the live-token protocols are set aside with their market caps shown.' }),
       el('h3', { text: 'The farm verdict, netted per protocol' }),
-      el('p', { class: 'sub', text: 'Expected airdrop = implied value x this protocol&rsquo;s pool x its farmer share. The pool starts at 5% of supply and moves with the protocol&rsquo;s age (younger pools more) and category (airdrop-heavy DeFi pools more), between 3% and 8%. One farmer&rsquo;s share starts at 0.1% at $25M of TVL and moves with size (smaller TVL, fewer farmers competing), between 0.07% and 0.14%. Cost = the capital ($50-$250 by TVL) plus $25 of gas. FARM is a net above $' + m.farm_net + ', THIN above $' + m.thin_net + ', SKIP at or below $' + m.thin_net + '. The assumptions are stated here so the verdicts can be argued with, not taken on trust.' })
+      el('p', { class: 'sub', text: 'Expected airdrop = implied value x this protocol&rsquo;s pool x its farmer share. The pool starts at 5% of supply and moves with the protocol&rsquo;s age (younger pools more) and category (airdrop-heavy DeFi pools more), between 3% and 8%. One farmer&rsquo;s share starts at 0.1% at $25M of TVL and moves with size (smaller TVL, fewer farmers competing), between 0.07% and 0.14%. Cost = the capital ($50-$250 by TVL) plus $25 of gas. FARM is a net above $' + m.farm_net + ', THIN above $' + m.thin_net + ', SKIP at or below $' + m.thin_net + '. The assumptions are stated here so the verdicts can be argued with, not taken on trust.' }),
+      el('p', { class: 'sub', text: 'Deposit to break even: a deposit D earns the expected value scaled by D over the standard capital, so the net at D is D times (expected per dollar minus 1) minus the $25 gas. The break-even deposit is the smallest whole dollar with a positive net; the FARM deposit is the smallest whole dollar with a net above $' + m.farm_net + '. When the expected value per dollar is below $1, no deposit breaks even.' })
     );
   }
 
@@ -457,6 +461,7 @@
       el('p', { class: 'sub', text: fdvEq === null ? 'No frozen FDV median is available for this run.' : 'At the comps\u2019 median FDV/market-cap of ' + fmtRatio(f.median_fdv_mcap) + ' (frozen ' + f.as_of + '), the FDV-equivalent is about ' + fmtUsd(fdvEq) + '. It frames the implied value; it never changes the ranking.' }),
       el('h3', { text: 'Farm plan — verdict ' + row.verdict }),
       el('p', { class: 'sub', text: 'Expected airdrop about ' + fmtUsd(row.expected_value_usd) + ', farming cost about ' + fmtUsd(row.farm_cost_usd) + ', net value ' + fmtSigned(row.net_value_usd) + '.' }),
+      el('p', { class: 'sub', text: 'Deposit to break even: ' + (row.break_even_deposit_usd === null ? 'no deposit breaks even — the expected airdrop per dollar deposited is below $1.' : 'about ' + fmtUsd(row.break_even_deposit_usd) + '.') + ' Deposit to reach FARM: ' + (row.farm_deposit_usd === null ? 'no deposit reaches it.' : 'about ' + fmtUsd(row.farm_deposit_usd) + '.') }),
       el('ol', { class: 'steps' }, row.farm_steps.map(function (s) {
         var at = s.indexOf(' Cost: ');
         var action = at >= 0 ? s.slice(0, at) : s;

@@ -14,7 +14,16 @@
 //      (train on protocols listed before 2025-01-01, test on the rest) is the
 //      headline validation: it is a blind test, the model never seeing the test
 //      comps while it is fitted, and it is reported beside LOO, labelled honestly
-//      as a listed-date split, not a walk-forward.
+//      as a listed-date split, not a walk-forward. A size split (train on the
+//      largest-TVL comps, test on the smallest) is a second blind test, in a
+//      different dimension: the board ranks mostly smaller protocols, so it
+//      probes whether the curve still prices the small ones it is used for.
+//   4. Every implied value carries a 90% bootstrap band: resample the 128
+//      comps with replacement (a seeded PRNG, so the bands are deterministic),
+//      refit the curve, recompute the row, take the 5th-95th percentile over
+//      200 replicates. The bands are wide because R-squared is 0.194, and
+//      they are shown, not hidden. They never change the ranking or the
+//      verdicts.
 //
 // The board is not the whole snapshot: the census counts every protocol in it,
 // each in exactly one bucket (ranked, live, comps beyond the live view,
@@ -112,6 +121,13 @@ export interface LooValidation {
     train_comps: number;
     test_comps: number;
     cutoff: string;
+    median_error_ratio: number;
+  } | null;
+  /** A second blind test: train on the largest-TVL comps, test on the smallest. */
+  size_split: {
+    train_comps: number;
+    test_comps: number;
+    cutoff_tvl_usd: number;
     median_error_ratio: number;
   } | null;
 }
@@ -220,7 +236,7 @@ export const AIRDROP_CATEGORIES = new Set([
 ]);
 
 /** The model's version label: the dashboard names it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -245,6 +261,25 @@ export interface QualityScore {
   age: number;
   stability: number;
   category: number;
+}
+
+/** One row's bootstrap uncertainty band: the 5th-95th percentile of its implied value over the replicates. */
+export interface BootstrapBand {
+  lo_usd: number;
+  hi_usd: number;
+  /** hi / lo: how wide the band is, as a multiple. */
+  width_x: number;
+}
+
+/** The bootstrap's summary, for the dashboard and the note: the median width and the extremes. */
+export interface BootstrapSummary {
+  replicates: number;
+  seed: number;
+  median_width_x: number;
+  p10_width_x: number;
+  p90_width_x: number;
+  widest: { slug: string; width_x: number }[];
+  narrowest: { slug: string; width_x: number }[];
 }
 
 /** The iron triangle: money, time and quality, each 0-1, and the two the plan leans on. */
@@ -283,6 +318,10 @@ export interface BoardRow {
     time_hold_days: number;
     time_active_hours: number;
     tradeoff: TradeOff;
+    /** The 90% bootstrap band on this row's implied value (see bootstrapBands). */
+    band_lo_usd: number;
+    band_hi_usd: number;
+    band_width_x: number;
   };
   verdict: FarmVerdict;
   expected_value_usd: number;
@@ -312,6 +351,9 @@ export interface RadarRow {
   time_hold_days: number;
   time_active_hours: number;
   tradeoff: TradeOff;
+  band_lo_usd: number;
+  band_hi_usd: number;
+  band_width_x: number;
   verdict: FarmVerdict;
   expected_value_usd: number;
   farm_cost_usd: number;
@@ -339,6 +381,8 @@ export interface RadarData {
   model_version: string;
   curve: SizeCurve;
   validation: LooValidation;
+  /** The bootstrap uncertainty bands (seeded, deterministic — see bootstrapBands). */
+  bootstrap: BootstrapSummary;
   fundamentals: FundamentalsSummary | null;
   census: Census;
   watchlist_size: number;
@@ -495,6 +539,25 @@ export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: Mo
     listed_date_split = { train_comps: train.length, test_comps: test.length, cutoff, median_error_ratio: Math.exp(median(testErrs)) };
   }
   const med = median(errs);
+  // A second blind test, in a different dimension from the listed-date split:
+  // train on the largest-TVL comps, test on the smallest. The board ranks
+  // mostly smaller protocols, so this probes whether the curve fitted on the
+  // big comps still prices the small ones it is actually used for. It is a
+  // size split, not a walk-forward, and is labelled so.
+  const sortedTvl = comps.map((p) => p.tvl_usd).sort((a, b) => a - b);
+  const medTvl = median(sortedTvl);
+  const trainBig = comps.filter((p) => p.tvl_usd >= medTvl);
+  const testSmall = comps.filter((p) => p.tvl_usd < medTvl);
+  let size_split: LooValidation['size_split'] = null;
+  if (trainBig.length >= 10 && testSmall.length >= 5) {
+    const curve = fitCurve(trainBig);
+    const testErrs = testSmall.map((p) => {
+      const { growthMult, maturityMult } = multipliers(p, asOf, model);
+      const pred = Math.exp(curve.intercept + curve.slope * Math.log(p.tvl_usd)) * growthMult * maturityMult;
+      return Math.abs(Math.log(pred / p.mcap_usd!));
+    });
+    size_split = { train_comps: trainBig.length, test_comps: testSmall.length, cutoff_tvl_usd: Math.round(medTvl), median_error_ratio: Math.exp(median(testErrs)) };
+  }
   return {
     comps: comps.length,
     median_log_error: med,
@@ -503,7 +566,83 @@ export function validateCurve(comps: SnapshotProtocol[], asOf: string, model: Mo
     per_category,
     worst_cases,
     listed_date_split,
+    size_split,
   };
+}
+
+/**
+ * A seeded PRNG (mulberry32): deterministic, no clock, no Math.random, no
+ * network. The same seed always draws the same sequence, so the bootstrap
+ * below is byte-identical across runs — determinism is a property of the
+ * program, and this is part of it.
+ */
+export function mulberry32(seed: number): () => number {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The q-th quantile of a list, by the sorted position floor(q * n). */
+function quantile(values: number[], q: number): number {
+  const s = [...values].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(q * s.length))]!;
+}
+
+/**
+ * Bootstrap uncertainty bands for every board row. Each replicate resamples
+ * the 128 comps with replacement (the seeded PRNG above), refits the size
+ * curve, and recomputes each row's implied value with that row's own growth
+ * and maturity multipliers — the same function that scores the row, so the
+ * band is the curve's uncertainty, not a different model. The band is the
+ * 5th-95th percentile over the replicates: a 90% interval. The bands are
+ * wide (the median is about x1.9, the widest about x3.3) because R-squared
+ * is 0.194, and they are shown, not hidden: a point estimate with no
+ * uncertainty is a claim the data cannot support. The bands never change
+ * the ranking or the verdicts — they say how much the point estimate
+ * could move if the comps had been drawn differently.
+ */
+export function bootstrapBands(
+  comps: SnapshotProtocol[],
+  rows: { slug: string; tvl_usd: number; growth_multiplier: number; maturity_multiplier: number }[],
+  replicates = 200,
+  seed = 20261120,
+): { bands: Map<string, BootstrapBand>; summary: BootstrapSummary } {
+  const rng = mulberry32(seed);
+  const boot: number[][] = rows.map(() => []);
+  for (let b = 0; b < replicates; b++) {
+    const sample: SnapshotProtocol[] = [];
+    for (let i = 0; i < comps.length; i++) sample.push(comps[Math.floor(rng() * comps.length)]!);
+    const curve = fitCurve(sample);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      const implied = Math.max(1, Math.round(Math.exp(curve.intercept + curve.slope * Math.log(r.tvl_usd)) * r.growth_multiplier * r.maturity_multiplier));
+      boot[i]!.push(implied);
+    }
+  }
+  const bands = new Map<string, BootstrapBand>();
+  const widths: { slug: string; width_x: number }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const lo = quantile(boot[i]!, 0.05);
+    const hi = quantile(boot[i]!, 0.95);
+    const width = Math.round((hi / lo) * 100) / 100;
+    bands.set(rows[i]!.slug, { lo_usd: lo, hi_usd: hi, width_x: width });
+    widths.push({ slug: rows[i]!.slug, width_x: width });
+  }
+  const sorted = [...widths].sort((a, b) => a.width_x - b.width_x);
+  const summary: BootstrapSummary = {
+    replicates,
+    seed,
+    median_width_x: Math.round(median(widths.map((w) => w.width_x)) * 100) / 100,
+    p10_width_x: sorted[Math.floor(sorted.length * 0.1)]!.width_x,
+    p90_width_x: sorted[Math.floor(sorted.length * 0.9)]!.width_x,
+    widest: [...widths].sort((a, b) => b.width_x - a.width_x).slice(0, 3),
+    narrowest: sorted.slice(0, 3),
+  };
+  return { bands, summary };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -825,8 +964,8 @@ export function census(snapshot: Snapshot, board: BoardRow[], live: LiveRow[]): 
   return { total: snapshot.protocols.length, buckets, excluded_detail };
 }
 
-/** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot, curve: SizeCurve, validation: LooValidation, model: ModelConstants = MODEL): BoardRow[] {
+/** The protocols the board ranks, strongest first, with ranks 1..n, each with its bootstrap band. */
+export function buildBoard(snapshot: Snapshot, curve: SizeCurve, validation: LooValidation, model: ModelConstants = MODEL): { board: BoardRow[]; bootstrap: BootstrapSummary } {
   const index = bySlug(snapshot.protocols);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug, even one the snapshot no longer carries.
@@ -850,7 +989,15 @@ export function buildBoard(snapshot: Snapshot, curve: SizeCurve, validation: Loo
     return { p, implied, growthPct, growthMult, maturityMult, age, v, quality, time, tradeoff };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
-  return scored.map((s, i) => ({
+  // The bootstrap bands: the same comps the curve is fitted on, resampled
+  // with the seeded PRNG, so the bands are deterministic. The band is the
+  // curve's uncertainty on this row, not a different model.
+  const comps = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0);
+  const { bands, summary: bootstrap } = bootstrapBands(
+    comps,
+    scored.map((s) => ({ slug: s.p.slug, tvl_usd: s.p.tvl_usd, growth_multiplier: s.growthMult, maturity_multiplier: s.maturityMult })),
+  );
+  const board = scored.map((s, i) => ({
     rank: i + 1,
     slug: s.p.slug,
     name: s.p.name,
@@ -876,6 +1023,9 @@ export function buildBoard(snapshot: Snapshot, curve: SizeCurve, validation: Loo
       time_hold_days: s.time.hold_days,
       time_active_hours: s.time.active_hours,
       tradeoff: s.tradeoff,
+      band_lo_usd: bands.get(s.p.slug)!.lo_usd,
+      band_hi_usd: bands.get(s.p.slug)!.hi_usd,
+      band_width_x: bands.get(s.p.slug)!.width_x,
     },
     verdict: s.v.verdict,
     expected_value_usd: s.v.expected,
@@ -883,6 +1033,7 @@ export function buildBoard(snapshot: Snapshot, curve: SizeCurve, validation: Loo
     net_value_usd: s.v.net,
     farm_steps: farmSteps(s.p, s.age, s.v).map(stepText),
   }));
+  return { board, bootstrap };
 }
 
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
@@ -909,6 +1060,9 @@ export function radarRow(row: BoardRow): RadarRow {
     time_hold_days: row.model.time_hold_days,
     time_active_hours: row.model.time_active_hours,
     tradeoff: row.model.tradeoff,
+    band_lo_usd: row.model.band_lo_usd,
+    band_hi_usd: row.model.band_hi_usd,
+    band_width_x: row.model.band_width_x,
     verdict: row.verdict,
     expected_value_usd: row.expected_value_usd,
     farm_cost_usd: row.farm_cost_usd,
@@ -958,7 +1112,7 @@ export function buildRadar(snapshot: Snapshot, frozen: FrozenFundamentals | null
   const curve = fitCurve(comps);
   const validation = validateCurve(comps, snapshot.as_of, model);
   const fundamentals = summarizeFundamentals(snapshot, frozen);
-  const board = buildBoard(snapshot, curve, validation, model);
+  const { board, bootstrap } = buildBoard(snapshot, curve, validation, model);
   const live = liveRows(snapshot);
   const censusData = census(snapshot, board, live);
   const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
@@ -972,6 +1126,7 @@ export function buildRadar(snapshot: Snapshot, frozen: FrozenFundamentals | null
     model_version: MODEL_VERSION,
     curve,
     validation,
+    bootstrap,
     fundamentals,
     census: censusData,
     watchlist_size: snapshot.watchlist.length,
